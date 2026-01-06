@@ -1,0 +1,326 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+//////////////////////
+// ENUMS
+//////////////////////
+
+enum UserRole {
+  MANAGER
+  EMPLOYEE
+  ACCOUNTANT
+}
+
+enum BusinessType {
+  PRODUCT_BASED
+  SERVICE_BASED
+  HYBRID
+}
+
+enum StockMovementType {
+  PURCHASE
+  SALE
+  SERVICE_USAGE
+  ADJUSTMENT
+  RETURN
+}
+
+enum UnitOfMeasure {
+  PIECE
+  MILLILITER
+  GRAM
+  KILOGRAM
+  LITER
+  METER
+}
+
+enum AppointmentStatus {
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+enum SaleStatus {
+  PENDING
+  COMPLETED
+  CANCELLED
+  REFUNDED
+}
+
+//////////////////////
+// MODELS
+//////////////////////
+
+model User {
+  id           String   @id @default(cuid())
+  email        String
+  name         String
+  passwordHash String
+  role         UserRole
+  phone        String?
+
+  business   Business? @relation(fields: [businessId], references: [id])
+  businessId String?
+
+  invitedBy    User?   @relation("InvitedUsers", fields: [invitedById], references: [id])
+  invitedById  String?
+  invitedUsers User[]  @relation("InvitedUsers")
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  lastLoginAt DateTime?
+
+  createdProducts       Product[]       @relation("ProductCreator")
+  createdServices       Service[]       @relation("ServiceCreator")
+  createdSales          Sale[]          @relation("SaleCreator")
+  serviceSales          ServiceSale[]   @relation("ServiceSalePerformer")
+  assignedAppointments  Appointment[]   @relation("AppointmentAssignee")
+  createdAppointments   Appointment[]   @relation("AppointmentCreator")
+  createdStockMovements StockMovement[] @relation("StockMovementCreator")
+  auditLogs             AuditLog[]      @relation("AuditLogPerformer")
+
+  @@unique([email, businessId])
+  @@index([businessId])
+}
+
+model Business {
+  id       String       @id @default(cuid())
+  name     String
+  type     BusinessType
+  phone    String?
+  address  String?
+  currency String       @default("ZAR")
+  timezone String       @default("Africa/Johannesburg")
+
+  hasInventory    Boolean @default(true)
+  hasServices     Boolean @default(true)
+  hasAppointments Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users          User[]
+  products       Product[]
+  services       Service[]
+  sales          Sale[]
+  serviceSales   ServiceSale[]
+  appointments   Appointment[]
+  barcodes       Barcode[]
+  stockMovements StockMovement[]
+  auditLogs      AuditLog[]
+}
+
+model Product {
+  id            String        @id @default(cuid())
+  name          String
+  description   String?
+  sku           String?
+  unitOfMeasure UnitOfMeasure @default(PIECE)
+  quantity      Float         @default(0)
+  costPerUnit   Float
+  sellingPrice  Float
+  isConsumable  Boolean       @default(true)
+  isActive      Boolean       @default(true)
+
+  business   Business @relation(fields: [businessId], references: [id])
+  businessId String
+
+  createdBy   User   @relation("ProductCreator", fields: [createdById], references: [id])
+  createdById String
+
+  barcode         Barcode?
+  stockMovements  StockMovement[]
+  saleItems       SaleItem[]
+  productUsages   ProductUsage[]
+  serviceProducts ServiceProduct[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([name, businessId])
+  @@index([businessId])
+}
+
+model Barcode {
+  id   String @id @default(cuid())
+  code String @unique
+
+  product   Product @relation(fields: [productId], references: [id])
+  productId String  @unique
+
+  business   Business @relation(fields: [businessId], references: [id])
+  businessId String
+}
+
+model Service {
+  id          String  @id @default(cuid())
+  name        String
+  description String?
+  basePrice   Float
+  isActive    Boolean @default(true)
+
+  business   Business @relation(fields: [businessId], references: [id])
+  businessId String
+
+  createdBy   User   @relation("ServiceCreator", fields: [createdById], references: [id])
+  createdById String
+
+  suggestedProducts ServiceProduct[]
+  appointments      Appointment[]
+  serviceSales      ServiceSale[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([name, businessId])
+}
+
+model ServiceProduct {
+  id                String  @id @default(cuid())
+  service           Service @relation(fields: [serviceId], references: [id])
+  serviceId         String
+  product           Product @relation(fields: [productId], references: [id])
+  productId         String
+  suggestedQuantity Float   @default(1)
+
+  @@unique([serviceId, productId])
+}
+
+model Sale {
+  id            String     @id @default(cuid())
+  receiptNumber String     @unique @default(uuid())
+  totalAmount   Float
+  status        SaleStatus @default(COMPLETED)
+
+  business   Business @relation(fields: [businessId], references: [id])
+  businessId String
+
+  createdBy   User   @relation("SaleCreator", fields: [createdById], references: [id])
+  createdById String
+
+  saleItems SaleItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model SaleItem {
+  id         String  @id @default(cuid())
+  sale       Sale    @relation(fields: [saleId], references: [id])
+  saleId     String
+  product    Product @relation(fields: [productId], references: [id])
+  productId  String
+  quantity   Float
+  unitPrice  Float
+  totalPrice Float
+
+  stockMovement   StockMovement? @relation(fields: [stockMovementId], references: [id])
+  stockMovementId String?        @unique
+}
+
+model ServiceSale {
+  id        String  @id @default(cuid())
+  service   Service @relation(fields: [serviceId], references: [id])
+  serviceId String
+
+  business   Business @relation(fields: [businessId], references: [id])
+  businessId String
+
+  createdBy   User   @relation("ServiceSalePerformer", fields: [createdById], references: [id])
+  createdById String
+
+  appointment   Appointment?
+  productUsages ProductUsage[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model ProductUsage {
+  id            String      @id @default(cuid())
+  serviceSale   ServiceSale @relation(fields: [serviceSaleId], references: [id])
+  serviceSaleId String
+  product       Product     @relation(fields: [productId], references: [id])
+  productId     String
+  quantityUsed  Float
+
+  stockMovement   StockMovement? @relation(fields: [stockMovementId], references: [id])
+  stockMovementId String?        @unique
+
+  @@unique([serviceSaleId, productId])
+}
+
+model StockMovement {
+  id               String            @id @default(cuid())
+  product          Product           @relation(fields: [productId], references: [id])
+  productId        String
+  type             StockMovementType
+  quantity         Float
+  previousQuantity Float
+  newQuantity      Float
+
+  business   Business @relation(fields: [businessId], references: [id])
+  businessId String
+
+  createdBy   User   @relation("StockMovementCreator", fields: [createdById], references: [id])
+  createdById String
+
+  saleItem     SaleItem?
+  productUsage ProductUsage?
+
+  createdAt DateTime @default(now())
+}
+
+model Appointment {
+  id            String            @id @default(cuid())
+  service       Service           @relation(fields: [serviceId], references: [id])
+  serviceId     String
+  clientName    String
+  clientPhone   String?
+  scheduledDate DateTime
+  status        AppointmentStatus @default(SCHEDULED)
+
+  assignedTo   User?   @relation("AppointmentAssignee", fields: [assignedToId], references: [id])
+  assignedToId String?
+
+  business   Business @relation(fields: [businessId], references: [id])
+  businessId String
+
+  createdBy   User   @relation("AppointmentCreator", fields: [createdById], references: [id])
+  createdById String
+
+  serviceSale   ServiceSale? @relation(fields: [serviceSaleId], references: [id])
+  serviceSaleId String?      @unique
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model AuditLog {
+  id         String @id @default(cuid())
+  action     String
+  entityType String
+  entityId   String
+
+  oldValue Json?
+  newValue Json?
+
+  business   Business? @relation(fields: [businessId], references: [id])
+  businessId String?
+
+  performedBy   User   @relation("AuditLogPerformer", fields: [performedById], references: [id])
+  performedById String
+
+  ipAddress String?
+  userAgent String?
+
+  createdAt DateTime @default(now())
+}
