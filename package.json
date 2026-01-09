@@ -11,7 +11,15 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio",
     "prisma:seed": "tsx prisma/seed.ts",
-    "prisma:reset": "prisma migrate reset --force"
+    "prisma:reset": "prisma migrate reset --force",
+    "user:create": "node scripts/create-user.js",
+    "user:list": "node scripts/list-users.js",
+    "user:password": "node scripts/change-password.js",
+    "db:reset": "npm run prisma:reset && npm run prisma:seed",
+    "db:refresh": "npm run prisma:reset && npm run prisma:seed",
+    "setup:dev": "npm install && npm run prisma:generate && npm run db:reset",
+    "test:auth": "node scripts/test-auth.js",
+    "user:businesses": "node scripts/list-businesses.js"
   },
   "dependencies": {
     "@prisma/client": "^5.0.0",
@@ -29,6 +37,7 @@
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
     "prisma": "^5.0.0",
+    "readline": "^1.3.0",
     "tsx": "^4.6.1",
     "typescript": "^5.9.3"
   },
@@ -45,4 +54,5 @@
     "url": "https://github.com/ScottSehlako/spaza-smart-api/issues"
   },
   "homepage": "https://github.com/ScottSehlako/spaza-smart-api#readme"
+  
 }

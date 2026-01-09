@@ -70,9 +70,9 @@ model User {
   business   Business? @relation(fields: [businessId], references: [id])
   businessId String?
 
-  invitedBy    User?   @relation("InvitedUsers", fields: [invitedById], references: [id])
+  invitedBy    User?   @relation("UserInvites", fields: [invitedById], references: [id])
   invitedById  String?
-  invitedUsers User[]  @relation("InvitedUsers")
+  invitedUsers User[]  @relation("UserInvites")
 
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
@@ -124,11 +124,18 @@ model Product {
   description   String?
   sku           String?
   unitOfMeasure UnitOfMeasure @default(PIECE)
-  quantity      Float         @default(0)
-  costPerUnit   Float
-  sellingPrice  Float
-  isConsumable  Boolean       @default(true)
-  isActive      Boolean       @default(true)
+
+  // Inventory
+  quantity         Float   @default(0)
+  reorderThreshold Float?
+  optimalQuantity  Float?
+
+  // Pricing
+  costPerUnit  Float
+  sellingPrice Float
+
+  isConsumable Boolean @default(true)
+  isActive     Boolean @default(true)
 
   business   Business @relation(fields: [businessId], references: [id])
   businessId String
@@ -158,6 +165,8 @@ model Barcode {
 
   business   Business @relation(fields: [businessId], references: [id])
   businessId String
+
+  @@index([businessId])
 }
 
 model Service {
@@ -197,6 +206,8 @@ model ServiceProduct {
 model Sale {
   id            String     @id @default(cuid())
   receiptNumber String     @unique @default(uuid())
+  customerName  String?    
+  customerPhone String? 
   totalAmount   Float
   status        SaleStatus @default(COMPLETED)
 
@@ -262,10 +273,15 @@ model StockMovement {
   id               String            @id @default(cuid())
   product          Product           @relation(fields: [productId], references: [id])
   productId        String
+
   type             StockMovementType
   quantity         Float
   previousQuantity Float
   newQuantity      Float
+
+  notes         String?
+  referenceId   String?
+  referenceType String?
 
   business   Business @relation(fields: [businessId], references: [id])
   businessId String
@@ -277,7 +293,12 @@ model StockMovement {
   productUsage ProductUsage?
 
   createdAt DateTime @default(now())
+
+  @@index([businessId])
+  @@index([productId])
+  @@index([referenceId])
 }
+
 
 model Appointment {
   id            String            @id @default(cuid())

@@ -1,4 +1,6 @@
+// prisma/seed.ts
 import { PrismaClient, UserRole, BusinessType, UnitOfMeasure } from '@prisma/client'
+import { hashPassword } from '../src/lib/auth'
 
 const prisma = new PrismaClient()
 
@@ -34,12 +36,17 @@ async function main() {
     },
   })
 
-  // Create users with plain passwords (will hash in Phase 2)
+  // Hash passwords properly
+  const managerPassword = await hashPassword('manager123')
+  const employeePassword = await hashPassword('employee123')
+  const accountantPassword = await hashPassword('accountant123')
+
+  // Create users with hashed passwords
   const manager = await prisma.user.create({
     data: {
       email: 'manager@spazasmart.com',
       name: 'Shop Manager',
-      passwordHash: 'temp_hash_manager', // Temporary
+      passwordHash: managerPassword,
       role: UserRole.MANAGER,
       businessId: business.id,
     },
@@ -49,7 +56,7 @@ async function main() {
     data: {
       email: 'employee@spazasmart.com',
       name: 'Shop Assistant',
-      passwordHash: 'temp_hash_employee',
+      passwordHash: employeePassword,
       role: UserRole.EMPLOYEE,
       businessId: business.id,
       invitedById: manager.id,
@@ -60,7 +67,7 @@ async function main() {
     data: {
       email: 'accountant@spazasmart.com',
       name: 'Business Accountant',
-      passwordHash: 'temp_hash_accountant',
+      passwordHash: accountantPassword,
       role: UserRole.ACCOUNTANT,
       businessId: business.id,
       invitedById: manager.id,
@@ -76,6 +83,7 @@ async function main() {
       quantity: 100,
       costPerUnit: 8.50,
       sellingPrice: 15.00,
+      reorderThreshold: 20,
       isConsumable: true,
       businessId: business.id,
       createdById: manager.id,
@@ -104,6 +112,12 @@ async function main() {
   })
 
   console.log('✅ Seed completed!')
+  console.log('\n=== TEST CREDENTIALS ===')
+  console.log('Business: Sample Spaza Shop')
+  console.log('Manager: manager@spazasmart.com / manager123')
+  console.log('Employee: employee@spazasmart.com / employee123')
+  console.log('Accountant: accountant@spazasmart.com / accountant123')
+  console.log('========================')
 }
 
 main()
