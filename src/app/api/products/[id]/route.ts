@@ -25,135 +25,139 @@ function toJsonValue(obj: any): any {
 
 // GET /api/products/[id] - Get single product
 export async function GET(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
-  try {
-    // 1. Authenticate user
-    const user = await getCurrentUserFromRequest(request)
-    const authUser = requireBusinessAccess(user)
-
-    // 2. Validate product ID
-    const { id: productId } = paramsSchema.parse(params)
-
-    // 3. Fetch product with detailed information
-    const product = await prisma.product.findUnique({
-      where: { 
-        id: productId,
-        businessId: authUser.businessId! // Ensure business scoping
-      },
-      select: {
-        id: true,
-        name: true,
-        description: true,
-        sku: true,
-        unitOfMeasure: true,
-        quantity: true,
-        reorderThreshold: true,
-        optimalQuantity: true,
-        costPerUnit: true,
-        sellingPrice: true,
-        isConsumable: true,
-        isActive: true,
-        createdAt: true,
-        updatedAt: true,
-        barcode: {
-          select: {
-            code: true
-          }
+    request: NextRequest,
+    { params }: { params: Promise<{ id: string }> }  // FIXED: params is Promise
+  ) {
+    try {
+      // 1. Authenticate user
+      const user = await getCurrentUserFromRequest(request)
+      const authUser = requireBusinessAccess(user)
+  
+      // 2. Get and validate product ID - FIXED
+      const { id: productId } = await params  // AWAIT the Promise
+      const { id } = paramsSchema.parse({ id: productId })
+  
+      // 3. Fetch product with detailed information
+      const product = await prisma.product.findUnique({
+        where: { 
+          id: productId,
+          businessId: authUser.businessId! // Ensure business scoping
         },
-        createdBy: {
-          select: {
-            id: true,
-            name: true,
-            email: true
-          }
-        },
-        // Include recent stock movements (last 10)
-        stockMovements: {
-          take: 10,
-          orderBy: { createdAt: 'desc' },
-          select: {
-            id: true,
-            type: true,
-            quantity: true,
-            previousQuantity: true,
-            newQuantity: true,
-            notes: true,
-            createdAt: true,
-            createdBy: {
-              select: {
-                name: true
+        select: {
+          id: true,
+          name: true,
+          description: true,
+          sku: true,
+          unitOfMeasure: true,
+          quantity: true,
+          reorderThreshold: true,
+          optimalQuantity: true,
+          costPerUnit: true,
+          sellingPrice: true,
+          isConsumable: true,
+          isActive: true,
+          createdAt: true,
+          updatedAt: true,
+          barcode: {
+            select: {
+              code: true
+            }
+          },
+          createdBy: {
+            select: {
+              id: true,
+              name: true,
+              email: true
+            }
+          },
+          // Include recent stock movements (last 10)
+          stockMovements: {
+            take: 10,
+            orderBy: { createdAt: 'desc' },
+            select: {
+              id: true,
+              type: true,
+              quantity: true,
+              previousQuantity: true,
+              newQuantity: true,
+              notes: true,
+              createdAt: true,
+              createdBy: {
+                select: {
+                  name: true
+                }
               }
             }
           }
         }
+      })
+  
+      if (!product) {
+        return NextResponse.json(
+          { error: 'Product not found' },
+          { status: 404 }
+        )
       }
-    })
-
-    if (!product) {
+  
+      // 4. Format response
+      const formattedProduct = {
+        ...product,
+        barcode: product.barcode?.code || null,
+        createdBy: product.createdBy.name,
+        stockMovements: product.stockMovements.map(movement => ({
+          ...movement,
+          createdBy: movement.createdBy.name,
+          createdAt: movement.createdAt.toISOString()
+        })),
+        createdAt: product.createdAt.toISOString(),
+        updatedAt: product.updatedAt.toISOString()
+      }
+  
+      // 5. Return response
+      return NextResponse.json({
+        success: true,
+        data: formattedProduct
+      })
+  
+    } catch (error) {
+      console.error('GET /api/products/[id] error:', error)
+      
+      if (error instanceof z.ZodError) {
+        return NextResponse.json(
+          { error: 'Invalid product ID', details: error.issues },
+          { status: 400 }
+        )
+      }
+  
+      if (error instanceof AuthError) {
+        return NextResponse.json(
+          { error: error.message },
+          { status: 401 }
+        )
+      }
+  
       return NextResponse.json(
-        { error: 'Product not found' },
-        { status: 404 }
+        { error: 'Internal server error' },
+        { status: 500 }
       )
     }
-
-    // 4. Format response
-    const formattedProduct = {
-      ...product,
-      barcode: product.barcode?.code || null,
-      createdBy: product.createdBy.name,
-      stockMovements: product.stockMovements.map(movement => ({
-        ...movement,
-        createdBy: movement.createdBy.name,
-        createdAt: movement.createdAt.toISOString()
-      })),
-      createdAt: product.createdAt.toISOString(),
-      updatedAt: product.updatedAt.toISOString()
-    }
-
-    // 5. Return response
-    return NextResponse.json({
-      success: true,
-      data: formattedProduct
-    })
-
-  } catch (error) {
-    console.error('GET /api/products/[id] error:', error)
-    
-    if (error instanceof z.ZodError) {
-      return NextResponse.json(
-        { error: 'Invalid product ID', details: error.issues },
-        { status: 400 }
-      )
-    }
-
-    if (error instanceof AuthError) {
-      return NextResponse.json(
-        { error: error.message },
-        { status: 401 }
-      )
-    }
-
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    )
   }
-}
 
 // PATCH /api/products/[id] - Update product
+// PATCH /api/products/[id] - Update product
 export async function PATCH(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
-  try {
-    // 1. Authenticate and authorize
-    const user = await getCurrentUserFromRequest(request)
-    const manager = requireManagerWithBusiness(user)
-
-    // 2. Validate product ID
-    const { id: productId } = paramsSchema.parse(params)
+    request: NextRequest,
+    { params }: { params: Promise<{ id: string }> }  // FIXED
+  ) {
+    try {
+      // 1. Authenticate and authorize
+      const user = await getCurrentUserFromRequest(request)
+      const manager = requireManagerWithBusiness(user)
+  
+      // 2. Get and validate product ID - FIXED
+      const { id: productId } = await params  // AWAIT
+      const { id } = paramsSchema.parse({ id: productId })
+      // ... rest of PATCH code
 
     // 3. Parse and validate request body
     const body = await request.json()
@@ -350,16 +354,18 @@ export async function PATCH(
 
 // DELETE /api/products/[id] - Soft delete product
 export async function DELETE(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
-  try {
-    // 1. Authenticate and authorize
-    const user = await getCurrentUserFromRequest(request)
-    const manager = requireManagerWithBusiness(user)
-
-    // 2. Validate product ID
-    const { id: productId } = paramsSchema.parse(params)
+    request: NextRequest,
+    { params }: { params: Promise<{ id: string }> }  // FIXED
+  ) {
+    try {
+      // 1. Authenticate and authorize
+      const user = await getCurrentUserFromRequest(request)
+      const manager = requireManagerWithBusiness(user)
+  
+      // 2. Get and validate product ID - FIXED
+      const { id: productId } = await params  // AWAIT
+      const { id } = paramsSchema.parse({ id: productId })
+      // ... rest of DELETE code
 
     // 3. Check if product exists and belongs to business
     const product = await prisma.product.findUnique({

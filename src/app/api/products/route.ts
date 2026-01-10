@@ -1,113 +1,141 @@
+// src/app/api/products/route.ts - FOR LISTING PRODUCTS
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
-import { getCurrentUserFromRequest, requireBusinessAccess, AuthError, requireManagerWithBusiness } from '@/lib/api-auth'
+import { productQuerySchema } from '@/lib/validations/product'
+import { getCurrentUserFromRequest, requireBusinessAccess, AuthError } from '@/lib/api-auth'
 
-// Params schema for validation
-const paramsSchema = z.object({
-  id: z.string().cuid('Invalid product ID format')
-})
-
-export async function GET(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
+export async function GET(request: NextRequest) {
   try {
     // 1. Authenticate user
     const user = await getCurrentUserFromRequest(request)
     const authUser = requireBusinessAccess(user)
 
-    // 2. Validate product ID
-    const { id: productId } = paramsSchema.parse(params)
+    // 2. Parse and validate query parameters - FIXED VERSION
+    const searchParams = request.nextUrl.searchParams
 
-    // 3. Fetch product with detailed information
-    const product = await prisma.product.findUnique({
-      where: { 
-        id: productId,
-        businessId: authUser.businessId! // Ensure business scoping
-      },
-      select: {
-        id: true,
-        name: true,
-        description: true,
-        sku: true,
-        unitOfMeasure: true,
-        quantity: true,
-        reorderThreshold: true,
-        optimalQuantity: true,
-        costPerUnit: true,
-        sellingPrice: true,
-        isConsumable: true,
-        isActive: true,
-        createdAt: true,
-        updatedAt: true,
-        barcode: {
-          select: {
-            code: true
-          }
-        },
-        createdBy: {
-          select: {
-            id: true,
-            name: true,
-            email: true
-          }
-        },
-        // Include recent stock movements (last 10)
-        stockMovements: {
-          take: 10,
-          orderBy: { createdAt: 'desc' },
-          select: {
-            id: true,
-            type: true,
-            quantity: true,
-            previousQuantity: true,
-            newQuantity: true,
-            notes: true,
-            createdAt: true,
-            createdBy: {
-              select: {
-                name: true
-              }
-            }
-          }
-        }
+    // Create a clean query object with defaults
+    const queryInput: Record<string, any> = {
+      page: searchParams.get('page') || '1',
+      limit: searchParams.get('limit') || '50'
+    }
+
+    // Only add optional fields if they exist
+    const optionalFields = ['search', 'lowStockOnly', 'isActive', 'unitOfMeasure']
+    optionalFields.forEach(field => {
+      const value = searchParams.get(field)
+      if (value !== null) {
+        queryInput[field] = value
       }
     })
 
-    if (!product) {
-      return NextResponse.json(
-        { error: 'Product not found' },
-        { status: 404 }
-      )
+    // Now validate
+    const query = productQuerySchema.parse(queryInput)
+
+    const { page, limit, search, lowStockOnly, isActive, unitOfMeasure } = query
+    const skip = (page - 1) * limit
+
+    // 3. Build where clause
+    const where: any = {
+      businessId: authUser.businessId!
     }
 
-    // 4. Format response
-    const formattedProduct = {
+    // Search filter
+    if (search) {
+      where.OR = [
+        { name: { contains: search, mode: 'insensitive' } },
+        { sku: { contains: search, mode: 'insensitive' } },
+        { description: { contains: search, mode: 'insensitive' } }
+      ]
+    }
+
+    // Low stock filter
+    if (lowStockOnly) {
+      where.reorderThreshold = { not: null }
+      where.quantity = { lte: prisma.product.fields.reorderThreshold }
+    }
+
+    // Active/inactive filter
+    if (isActive !== undefined) {
+      where.isActive = isActive
+    }
+
+    // Unit of measure filter
+    if (unitOfMeasure) {
+      where.unitOfMeasure = unitOfMeasure
+    }
+
+    // 4. Fetch products with pagination
+    const [products, total] = await Promise.all([
+      prisma.product.findMany({
+        where,
+        select: {
+          id: true,
+          name: true,
+          description: true,
+          sku: true,
+          unitOfMeasure: true,
+          quantity: true,
+          reorderThreshold: true,
+          optimalQuantity: true,
+          costPerUnit: true,
+          sellingPrice: true,
+          isConsumable: true,
+          isActive: true,
+          createdAt: true,
+          updatedAt: true,
+          barcode: {
+            select: {
+              code: true
+            }
+          },
+          createdBy: {
+            select: {
+              id: true,
+              name: true,
+              email: true
+            }
+          }
+        },
+        orderBy: [
+          { isActive: 'desc' },
+          { name: 'asc' }
+        ],
+        skip,
+        take: limit
+      }),
+      prisma.product.count({ where })
+    ])
+
+    // 5. Format response for mobile
+    const formattedProducts = products.map(product => ({
       ...product,
       barcode: product.barcode?.code || null,
       createdBy: product.createdBy.name,
-      stockMovements: product.stockMovements.map(movement => ({
-        ...movement,
-        createdBy: movement.createdBy.name,
-        createdAt: movement.createdAt.toISOString()
-      })),
       createdAt: product.createdAt.toISOString(),
       updatedAt: product.updatedAt.toISOString()
-    }
+    }))
 
-    // 5. Return response
+    // 6. Return response
     return NextResponse.json({
       success: true,
-      data: formattedProduct
+      data: formattedProducts,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+        hasNextPage: page * limit < total,
+        hasPrevPage: page > 1
+      }
     })
 
   } catch (error) {
-    console.error('GET /api/products/[id] error:', error)
+    console.error('GET /api/products error:', error)
     
     if (error instanceof z.ZodError) {
       return NextResponse.json(
-        { error: 'Invalid product ID', details: error.issues },
+        { error: 'Invalid query parameters', details: error.issues },
         { status: 400 }
       )
     }
@@ -119,121 +147,9 @@ export async function GET(
       )
     }
 
-      return NextResponse.json(
-        { error: 'Internal server error' },
-        { status: 500 }
-      )
-    }
-  }
-  export async function DELETE(
-    request: NextRequest,
-    { params }: { params: { id: string } }
-  ) {
-   {
-    try {
-      // 1. Authenticate and authorize
-      const user = await getCurrentUserFromRequest(request)
-      const manager = requireManagerWithBusiness(user) // Only managers can delete
-  
-      // 2. Validate product ID
-      const { id: productId } = paramsSchema.parse(params)
-  
-      // 3. Check if product exists and belongs to business
-      const product = await prisma.product.findUnique({
-        where: { 
-          id: productId,
-          businessId: manager.businessId!
-        },
-        select: {
-          id: true,
-          name: true,
-          quantity: true,
-          isActive: true
-        }
-      })
-  
-      if (!product) {
-        return NextResponse.json(
-          { error: 'Product not found' },
-          { status: 404 }
-        )
-      }
-  
-      // 4. Prevent deletion if product has stock
-      if (product.quantity > 0) {
-        return NextResponse.json(
-          { 
-            error: 'Cannot delete product with stock remaining',
-            currentStock: product.quantity
-          },
-          { status: 400 }
-        )
-      }
-  
-      // 5. Check if product is already inactive
-      if (!product.isActive) {
-        return NextResponse.json(
-          { error: 'Product is already inactive' },
-          { status: 400 }
-        )
-      }
-  
-      // 6. Soft delete with transaction
-      await prisma.$transaction(async (tx) => {
-        // Soft delete by setting isActive to false
-        await tx.product.update({
-          where: { id: productId },
-          data: { 
-            isActive: false,
-            updatedAt: new Date()
-          }
-        })
-  
-        // Create audit log
-        const ipAddress = request.headers.get('x-forwarded-for') || 'unknown'
-        
-        await tx.auditLog.create({
-          data: {
-            action: 'PRODUCT_DELETED',
-            entityType: 'Product',
-            entityId: productId,
-            businessId: manager.businessId!,
-            performedById: manager.id,
-            oldValue: { isActive: true },
-            newValue: { isActive: false },
-            ipAddress,
-            userAgent: request.headers.get('user-agent') || 'unknown'
-          }
-        })
-      })
-  
-      // 7. Return success response
-      return NextResponse.json({
-        success: true,
-        message: 'Product deactivated successfully'
-      })
-  
-    } catch (error) {
-      console.error('DELETE /api/products/[id] error:', error)
-      
-      if (error instanceof z.ZodError) {
-        return NextResponse.json(
-          { error: 'Invalid product ID', details: error.issues },
-          { status: 400 }
-        )
-      }
-  
-      if (error instanceof AuthError) {
-        return NextResponse.json(
-          { error: error.message },
-          { status: 401 }
-        )
-      }
-  
-      return NextResponse.json(
-        { error: 'Failed to delete product' },
-        { status: 500 }
-      )
-    }
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    )
   }
 }
