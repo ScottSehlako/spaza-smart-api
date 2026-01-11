@@ -174,6 +174,7 @@ model Service {
   name        String
   description String?
   basePrice   Float
+  durationMinutes Int?    //Duration in minutes, nullable
   isActive    Boolean @default(true)
 
   business   Business @relation(fields: [businessId], references: [id])
@@ -300,6 +301,7 @@ model StockMovement {
 }
 
 
+// Update Appointment model to include durationMinutes and notes
 model Appointment {
   id            String            @id @default(cuid())
   service       Service           @relation(fields: [serviceId], references: [id])
@@ -307,7 +309,9 @@ model Appointment {
   clientName    String
   clientPhone   String?
   scheduledDate DateTime
+  durationMinutes Int?            
   status        AppointmentStatus @default(SCHEDULED)
+  notes         String?          
 
   assignedTo   User?   @relation("AppointmentAssignee", fields: [assignedToId], references: [id])
   assignedToId String?

@@ -1,11 +1,11 @@
 import { z } from 'zod'
 
-// Service validation - REMOVED durationMinutes since it's not in Prisma model
+// Service validation - UPDATED with durationMinutes
 export const createServiceSchema = z.object({
   name: z.string().min(1, 'Service name is required').max(200),
   description: z.string().optional(),
   basePrice: z.number().positive('Base price must be positive'),
-  // REMOVED: durationMinutes - not in Prisma Service model
+  durationMinutes: z.number().int().positive('Duration must be positive').optional(),
   isActive: z.boolean().default(true)
 })
 
