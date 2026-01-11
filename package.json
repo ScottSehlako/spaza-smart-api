@@ -25,6 +25,7 @@
   "dependencies": {
     "@prisma/client": "^5.0.0",
     "bcryptjs": "^3.0.3",
+    "csv-stringify": "^6.6.0",
     "jsonwebtoken": "^9.0.3",
     "next": "^16.1.1",
     "react": "^19.2.3",
@@ -55,5 +56,4 @@
     "url": "https://github.com/ScottSehlako/spaza-smart-api/issues"
   },
   "homepage": "https://github.com/ScottSehlako/spaza-smart-api#readme"
-  
 }

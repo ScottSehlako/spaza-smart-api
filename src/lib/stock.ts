@@ -1,21 +1,22 @@
-import { StockMovementType } from '@prisma/client'
-import { prisma } from './prisma'
+import { StockMovementType } from '@prisma/client';
+import { prisma } from './prisma';
+import { RequestContext } from './request-context';
 
 export interface StockMovementParams {
-  productId: string
-  businessId: string
-  userId: string
-  type: StockMovementType
-  quantity: number
-  notes?: string
-  referenceId?: string
-  referenceType?: string
+  productId: string;
+  businessId: string;
+  userId: string;
+  type: StockMovementType;
+  quantity: number;
+  notes?: string;
+  referenceId?: string;
+  referenceType?: string;
 }
 
 export class StockError extends Error {
   constructor(message: string) {
-    super(message)
-    this.name = 'StockError'
+    super(message);
+    this.name = 'StockError';
   }
 }
 
@@ -32,12 +33,12 @@ export async function createStockMovement(params: StockMovementParams) {
     quantity,
     notes,
     referenceId,
-    referenceType
-  } = params
+    referenceType,
+  } = params;
 
   // Validate quantity
   if (quantity <= 0) {
-    throw new StockError('Quantity must be greater than 0')
+    throw new StockError('Quantity must be greater than 0');
   }
 
   // Use transaction to ensure data consistency
@@ -50,46 +51,46 @@ export async function createStockMovement(params: StockMovementParams) {
         quantity: true,
         name: true,
         isConsumable: true,
-        businessId: true
-      }
-    })
+        businessId: true,
+      },
+    });
 
     if (!product) {
-      throw new StockError('Product not found')
+      throw new StockError('Product not found');
     }
 
     // 2. Verify product belongs to business
     if (product.businessId !== businessId) {
-      throw new StockError('Product does not belong to this business')
+      throw new StockError('Product does not belong to this business');
     }
 
     // 3. Calculate new quantity based on movement type
-    let newQuantity = product.quantity
-    const previousQuantity = product.quantity
+    let newQuantity = product.quantity;
+    const previousQuantity = product.quantity;
 
     switch (type) {
       case StockMovementType.PURCHASE:
       case StockMovementType.RETURN:
         // Adding stock
-        newQuantity = product.quantity + quantity
-        break
+        newQuantity = product.quantity + quantity;
+        break;
 
       case StockMovementType.SALE:
       case StockMovementType.SERVICE_USAGE:
       case StockMovementType.ADJUSTMENT:
         // Deducting stock
-        newQuantity = product.quantity - quantity
-        
+        newQuantity = product.quantity - quantity;
+
         // Check for negative stock (except for adjustments which can be negative)
         if (newQuantity < 0 && type !== StockMovementType.ADJUSTMENT) {
           throw new StockError(
-            `Insufficient stock. Available: ${product.quantity}, Required: ${quantity}`
-          )
+            `Insufficient stock. Available: ${product.quantity}, Required: ${quantity}`,
+          );
         }
-        break
+        break;
 
       default:
-        throw new StockError(`Invalid stock movement type: ${type}`)
+        throw new StockError(`Invalid stock movement type: ${type}`);
     }
 
     // 4. Create stock movement record (immutable)
@@ -104,41 +105,58 @@ export async function createStockMovement(params: StockMovementParams) {
         createdById: userId,
         notes,
         referenceId,
-        referenceType
-      }
-    })
+        referenceType,
+      },
+    });
 
     // 5. Update product quantity (cached value)
     await tx.product.update({
       where: { id: productId },
-      data: { quantity: newQuantity }
-    })
+      data: { quantity: newQuantity },
+    });
 
-    // 6. Create audit log
-    await tx.auditLog.create({
-      data: {
-        action: `STOCK_${type}`,
-        entityType: 'Product',
-        entityId: productId,
-        businessId,
-        performedById: userId,
-        oldValue: { quantity: previousQuantity },
-        newValue: { quantity: newQuantity },
-        ipAddress: 'system', // Will be set from request context
-        userAgent: 'stock-movement-engine'
-      }
-    })
+    // 6. Create audit log using RequestContext (outside transaction for reliability)
+    // We'll do this after the transaction commits to ensure audit log reflects actual changes
+    const auditData = {
+      productId,
+      type,
+      previousQuantity,
+      newQuantity,
+      businessId,
+      userId,
+      notes,
+    };
 
-    return {
+    // Return the result first, then log audit asynchronously
+    const result = {
       stockMovement,
       product: {
         id: product.id,
         name: product.name,
         previousQuantity,
-        newQuantity
+        newQuantity,
+      },
+    };
+
+    // Schedule audit logging to run after transaction completes
+    process.nextTick(async () => {
+      try {
+        await RequestContext.logWithContext({
+          action: `STOCK_${type}` as any,
+          entityType: 'Product',
+          entityId: productId,
+          businessId,
+          performedById: userId,
+          oldValue: { quantity: previousQuantity },
+          newValue: { quantity: newQuantity },
+        });
+      } catch (auditError) {
+        console.warn('Failed to create audit log for stock movement:', auditError);
       }
-    }
-  })
+    });
+
+    return result;
+  });
 }
 
 /**
@@ -149,7 +167,7 @@ export async function addStock(
   businessId: string,
   userId: string,
   quantity: number,
-  notes?: string
+  notes?: string,
 ) {
   return createStockMovement({
     productId,
@@ -157,8 +175,8 @@ export async function addStock(
     userId,
     type: StockMovementType.PURCHASE,
     quantity,
-    notes: notes || 'Stock purchase'
-  })
+    notes: notes || 'Stock purchase',
+  });
 }
 
 /**
@@ -170,7 +188,7 @@ export async function sellProduct(
   userId: string,
   quantity: number,
   saleId?: string,
-  notes?: string
+  notes?: string,
 ) {
   return createStockMovement({
     productId,
@@ -180,8 +198,8 @@ export async function sellProduct(
     quantity,
     notes: notes || 'Product sale',
     referenceId: saleId,
-    referenceType: saleId ? 'sale' : undefined
-  })
+    referenceType: saleId ? 'sale' : undefined,
+  });
 }
 
 /**
@@ -193,7 +211,7 @@ export async function useProductInService(
   userId: string,
   quantity: number,
   serviceSaleId?: string,
-  notes?: string
+  notes?: string,
 ) {
   return createStockMovement({
     productId,
@@ -203,8 +221,8 @@ export async function useProductInService(
     quantity,
     notes: notes || 'Service usage',
     referenceId: serviceSaleId,
-    referenceType: serviceSaleId ? 'service_sale' : undefined
-  })
+    referenceType: serviceSaleId ? 'service_sale' : undefined,
+  });
 }
 
 /**
@@ -215,7 +233,7 @@ export async function adjustStock(
   businessId: string,
   userId: string,
   quantity: number,
-  reason: string
+  reason: string,
 ) {
   return createStockMovement({
     productId,
@@ -223,8 +241,8 @@ export async function adjustStock(
     userId,
     type: StockMovementType.ADJUSTMENT,
     quantity: Math.abs(quantity),
-    notes: `Stock adjustment: ${reason}. ${quantity >= 0 ? 'Added' : 'Deducted'} ${Math.abs(quantity)} units.`
-  })
+    notes: `Stock adjustment: ${reason}. ${quantity >= 0 ? 'Added' : 'Deducted'} ${Math.abs(quantity)} units.`,
+  });
 }
 
 /**
@@ -234,36 +252,30 @@ export async function getProductStockHistory(
   productId: string,
   businessId: string,
   options?: {
-    page?: number
-    limit?: number
-    startDate?: Date
-    endDate?: Date
-    type?: StockMovementType
-  }
+    page?: number;
+    limit?: number;
+    startDate?: Date;
+    endDate?: Date;
+    type?: StockMovementType;
+  },
 ) {
-  const {
-    page = 1,
-    limit = 50,
-    startDate,
-    endDate,
-    type
-  } = options || {}
+  const { page = 1, limit = 50, startDate, endDate, type } = options || {};
 
-  const skip = (page - 1) * limit
+  const skip = (page - 1) * limit;
 
   const where: any = {
     productId,
-    businessId
-  }
+    businessId,
+  };
 
   if (startDate || endDate) {
-    where.createdAt = {}
-    if (startDate) where.createdAt.gte = startDate
-    if (endDate) where.createdAt.lte = endDate
+    where.createdAt = {};
+    if (startDate) where.createdAt.gte = startDate;
+    if (endDate) where.createdAt.lte = endDate;
   }
 
   if (type) {
-    where.type = type
+    where.type = type;
   }
 
   const [movements, total] = await Promise.all([
@@ -274,18 +286,18 @@ export async function getProductStockHistory(
           select: {
             id: true,
             name: true,
-            email: true
-          }
+            email: true,
+          },
         },
         saleItem: {
           include: {
             sale: {
               select: {
                 receiptNumber: true,
-                createdAt: true
-              }
-            }
-          }
+                createdAt: true,
+              },
+            },
+          },
         },
         productUsage: {
           include: {
@@ -294,20 +306,20 @@ export async function getProductStockHistory(
                 id: true,
                 service: {
                   select: {
-                    name: true
-                  }
-                }
-              }
-            }
-          }
-        }
+                    name: true,
+                  },
+                },
+              },
+            },
+          },
+        },
       },
       orderBy: { createdAt: 'desc' },
       skip,
-      take: limit
+      take: limit,
     }),
-    prisma.stockMovement.count({ where })
-  ])
+    prisma.stockMovement.count({ where }),
+  ]);
 
   return {
     movements,
@@ -315,9 +327,9 @@ export async function getProductStockHistory(
       page,
       limit,
       total,
-      totalPages: Math.ceil(total / limit)
-    }
-  }
+      totalPages: Math.ceil(total / limit),
+    },
+  };
 }
 
 /**
@@ -332,25 +344,60 @@ export async function checkReorderStatus(productId: string) {
       quantity: true,
       reorderThreshold: true,
       optimalQuantity: true,
-      sku: true
-    }
-  })
+      sku: true,
+    },
+  });
 
   if (!product) {
-    throw new StockError('Product not found')
+    throw new StockError('Product not found');
   }
 
-  const needsReorder = product.reorderThreshold !== null && 
-    product.quantity <= product.reorderThreshold
+  const needsReorder =
+    product.reorderThreshold !== null && product.quantity <= product.reorderThreshold;
 
-  const reorderAmount = product.optimalQuantity !== null
-    ? Math.max(0, product.optimalQuantity - product.quantity)
-    : 0
+  const reorderAmount =
+    product.optimalQuantity !== null
+      ? Math.max(0, product.optimalQuantity - product.quantity)
+      : 0;
 
   return {
     ...product,
     needsReorder,
     reorderAmount,
-    status: needsReorder ? 'LOW_STOCK' : 'OK'
-  }
+    status: needsReorder ? 'LOW_STOCK' : 'OK',
+  };
+}
+
+/**
+ * Get low stock products for a business
+ */
+export async function getLowStockProducts(businessId: string, limit = 20) {
+  const products = await prisma.product.findMany({
+    where: {
+      businessId,
+      isActive: true,
+      reorderThreshold: { not: null },
+      quantity: { lte: prisma.product.fields.reorderThreshold },
+    },
+    select: {
+      id: true,
+      name: true,
+      sku: true,
+      quantity: true,
+      reorderThreshold: true,
+      optimalQuantity: true,
+      unitOfMeasure: true,
+    },
+    orderBy: { quantity: 'asc' },
+    take: limit,
+  });
+
+  return products.map((product) => ({
+    ...product,
+    needsReorder: true,
+    reorderAmount: product.optimalQuantity
+      ? Math.max(0, product.optimalQuantity - product.quantity)
+      : 0,
+    status: 'LOW_STOCK' as const,
+  }));
 }
