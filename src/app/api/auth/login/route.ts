@@ -94,8 +94,11 @@ export async function POST(req: NextRequest) {
         email: user.email,
         name: user.name,
         role: user.role,
+        phone: user.phone, // Add this if you have it
         businessId: user.businessId,
         businessName: user.business?.name,
+        createdAt: user.createdAt.toISOString(),    // Add this
+        updatedAt: user.updatedAt.toISOString(),    // Add this
         lastLoginAt: user.lastLoginAt?.toISOString(),
       },
     });
