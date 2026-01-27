@@ -112,18 +112,14 @@ static async log(params: AuditLogParams): Promise<void> {
   
       // Handle oldValue
       if (params.oldValue !== undefined && params.oldValue !== null) {
-        data.oldValue = typeof params.oldValue === 'string' 
-          ? params.oldValue 
-          : JSON.stringify(params.oldValue);
+        data.oldValue = this.toPrismaJson(params.oldValue);
       } else {
         data.oldValue = null;
       }
   
       // Handle newValue
       if (params.newValue !== undefined && params.newValue !== null) {
-        data.newValue = typeof params.newValue === 'string'
-          ? params.newValue
-          : JSON.stringify(params.newValue);
+       data.newValue = this.toPrismaJson(params.newValue);
       } else {
         data.newValue = null;
       }

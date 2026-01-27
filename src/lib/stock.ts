@@ -1,3 +1,4 @@
+//src/lib/stock.ts
 import { StockMovementType } from '@prisma/client';
 import { prisma } from './prisma';
 import { RequestContext } from './request-context';
@@ -82,10 +83,10 @@ export async function createStockMovement(params: StockMovementParams) {
         newQuantity = product.quantity - quantity;
 
         // Check for negative stock (except for adjustments which can be negative)
-        if (newQuantity < 0 && type !== StockMovementType.ADJUSTMENT) {
-          throw new StockError(
-            `Insufficient stock. Available: ${product.quantity}, Required: ${quantity}`,
-          );
+        if (quantity > 0) {
+          newQuantity = product.quantity - quantity;
+        } else {
+          newQuantity = product.quantity + Math.abs(quantity);
         }
         break;
 

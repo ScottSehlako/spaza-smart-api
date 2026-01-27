@@ -1,3 +1,4 @@
+// API route for user login
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyPassword, generateToken, AuthError } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
