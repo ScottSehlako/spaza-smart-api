@@ -1,17 +1,24 @@
+//src/app/api/sales/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { getCurrentUserFromRequest, requireBusinessAccess, AuthError } from '@/lib/api-auth';
 
 // Query validation schema
+// Update in sales/route.ts - line 11
 const querySchema = z.object({
-  page: z.string().optional().default('1').transform(Number),
-  limit: z.string().optional().default('50').transform(Number),
-  startDate: z.string().optional(),
-  endDate: z.string().optional(),
-  search: z.string().optional(),
-  type: z.enum(['PRODUCT', 'SERVICE']).optional(),
-});
+    page: z.string().optional().default('1').transform(Number),
+    limit: z.string().optional().default('50').transform(Number),
+    startDate: z.string().nullable().optional().default(null),
+    endDate: z.string().nullable().optional().default(null),
+    search: z.string().nullable().optional().default(null),
+    type: z.enum(['PRODUCT', 'SERVICE']).optional().nullable().default(null),
+  }).transform(data => ({
+    ...data,
+    search: data.search === null ? '' : data.search,
+    startDate: data.startDate === null ? '' : data.startDate,
+    endDate: data.endDate === null ? '' : data.endDate,
+  }));
 
 // GET /api/sales - Get all sales (product and service sales)
 export async function GET(request: NextRequest) {
@@ -21,13 +28,15 @@ export async function GET(request: NextRequest) {
 
     const searchParams = request.nextUrl.searchParams;
     const query = querySchema.parse({
-      page: searchParams.get('page'),
-      limit: searchParams.get('limit'),
-      startDate: searchParams.get('startDate'),
-      endDate: searchParams.get('endDate'),
-      search: searchParams.get('search'),
-      type: searchParams.get('type'),
-    });
+        page: searchParams.get('page'),
+        limit: searchParams.get('limit'),
+        search: searchParams.get('search'),
+        isActive: searchParams.get('isActive'),  // for products only
+        lowStockOnly: searchParams.get('lowStockOnly'),  // for products only
+        startDate: searchParams.get('startDate'),  // for sales only
+        endDate: searchParams.get('endDate'),  // for sales only
+        type: searchParams.get('type'),  // for sales only
+      });
 
     const { page, limit, startDate, endDate, search, type } = query;
     const skip = (page - 1) * limit;

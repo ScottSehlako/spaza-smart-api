@@ -243,6 +243,8 @@ model ServiceSale {
   service   Service @relation(fields: [serviceId], references: [id])
   serviceId String
 
+  totalAmount Float  @default(0)
+
   business   Business @relation(fields: [businessId], references: [id])
   businessId String
 

@@ -3,12 +3,26 @@ import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { getCurrentUserFromRequest, requireManagerWithBusiness, AuthError } from '@/lib/api-auth';
 
-// Query validation schema
+// Query validation schema - FIXED VERSION (role truly optional)
 const querySchema = z.object({
-  page: z.string().optional().default('1').transform(Number),
-  limit: z.string().optional().default('50').transform(Number),
-  search: z.string().optional(),
-  role: z.enum(['MANAGER', 'EMPLOYEE', 'ACCOUNTANT']).optional(),
+  page: z.string().default('1').transform(Number),
+  limit: z.string().default('50').transform(Number),
+  search: z.string().default(''),
+  role: z.string().optional().nullable().transform(val => {
+    // Handle null/undefined/empty string
+    if (!val || val.trim() === '') {
+      return undefined;
+    }
+    
+    // Only accept valid roles
+    const validRoles = ['MANAGER', 'EMPLOYEE', 'ACCOUNTANT'];
+    if (validRoles.includes(val)) {
+      return val;
+    }
+    
+    // Return undefined for invalid roles
+    return undefined;
+  }),
 });
 
 // GET /api/users - List all users in the business
@@ -18,11 +32,19 @@ export async function GET(request: NextRequest) {
     const manager = requireManagerWithBusiness(user);
 
     const searchParams = request.nextUrl.searchParams;
+    
+    // Get raw values with defaults
+    const rawPage = searchParams.get('page') || '1';
+    const rawLimit = searchParams.get('limit') || '50';
+    const rawSearch = searchParams.get('search') || '';
+    const rawRole = searchParams.get('role');
+
+    // Parse query parameters
     const query = querySchema.parse({
-      page: searchParams.get('page'),
-      limit: searchParams.get('limit'),
-      search: searchParams.get('search'),
-      role: searchParams.get('role'),
+      page: rawPage,
+      limit: rawLimit,
+      search: rawSearch,
+      role: rawRole,
     });
 
     const { page, limit, search, role } = query;
@@ -33,6 +55,7 @@ export async function GET(request: NextRequest) {
       businessId: manager.businessId!,
     };
 
+    // Apply role filter only if valid role provided
     if (role) {
       where.role = role;
     }
@@ -58,21 +81,19 @@ export async function GET(request: NextRequest) {
           createdAt: true,
           updatedAt: true,
           invitedBy: {
-            // Correct relation name from your schema
             select: {
               id: true,
               name: true,
               email: true,
             },
           },
-          // Count specific relations using correct relation names from your schema
           _count: {
             select: {
-              createdSales: true, // Changed from 'sales' to 'createdSales'
+              createdSales: true,
               serviceSales: true,
               auditLogs: true,
-              createdProducts: true, // Added
-              createdServices: true, // Added
+              createdProducts: true,
+              createdServices: true,
             },
           },
         },
